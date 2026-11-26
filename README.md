@@ -14,7 +14,7 @@ Every route is covered at the integration level. `test/inventory.test.js` covers
 
 ## Integration test results
 
-Everything recorded here is integration-level: each test drives real HTTP over a loopback socket (`app.listen(0)` plus the global `fetch`) or spawns `node src/index.js`, and none of it calls a handler directly or substitutes the transport. Every command below was run from `services/warehouse-catalogue-api` on Node.js v22.23.5 with `express@4.21.2`.
+Everything recorded here is integration-level: each test drives real HTTP over a loopback socket (`app.listen(0)` plus the global `fetch`) or spawns the entry point and talks to it over its own socket (`node src/index.js`, or `npm run start` for the recorded manifest case), and none of it calls a handler directly or substitutes the transport. The one case that can issue no request is `entry point falls back to port 3000 when PORT is unset` where port 3000 is held: it skips instead of running, as recorded below. Every command below was run from `services/warehouse-catalogue-api` on Node.js v22.23.5 with `express@4.21.2`.
 
 ### Expected failure
 
@@ -41,7 +41,7 @@ The summary of that run is `# tests 1`, `# pass 0`, `# fail 0`, `# todo 1`, exit
 | `node --test test/entrypoint.test.js` | `# tests 3`, `# pass 2`, `# fail 0`, `# todo 1`, exit 0 |
 | `npm test` (full suite) | `# tests 15`, `# pass 14`, `# fail 0`, `# todo 1`, exit 0 |
 
-Each new test on its own, one command per case — the fourteen passing cases, since `manifest start script serves the app` is the expected failure recorded above:
+Each passing case on its own, one command per case — the fourteen passing cases (the pre-existing health case plus the thirteen new ones), since `manifest start script serves the app` is the expected failure recorded above:
 
 | Command | Observed line |
 | --- | --- |
@@ -66,4 +66,4 @@ Port 3000 was free in the environment these runs were taken in, so `entry point 
 
 13 of 13 integration behaviours are covered — the pre-existing `GET /health` behaviour plus the 12 newly closed — against a denominator of 13, of which 5 are high priority and 8 medium. The requested target was 90%, which at this denominator is 12 of 13 behaviours (92.3%); 11 of 13 would be 84.6% and would miss, and this work closes 12 behaviours, reaching 13 of 13. The framework-level `400` that `express.json()` returns for a malformed JSON body is deliberately excluded, because it re-tests Express rather than this service.
 
-Line coverage is a secondary measure and settles nothing here: `node --test --experimental-test-coverage` reports `src/server.js` at 100.00% lines / 100.00% branches / 100.00% functions, against 45.28% / 100.00% / 16.67% before this work. `src/index.js` does not appear in that report at all, because it is exercised by a spawned child process rather than imported; the evidence for it is the spawn test above.
+Line coverage is a secondary measure and settles nothing here: `node --test --experimental-test-coverage` reports `src/server.js` at 100.00% lines / 100.00% branches / 100.00% functions, against 45.28% / 100.00% / 16.67% before this work. `src/index.js` does not appear in that report at all: `node --test` runs each child with a `NODE_V8_COVERAGE` directory and a process writes its coverage only when it exits cleanly, so the `node src/index.js` children — stopped with SIGTERM — flush nothing, and the manifest case starts `src/server.js`, which the route test files already import. The evidence for the entry point is the spawn test above.
