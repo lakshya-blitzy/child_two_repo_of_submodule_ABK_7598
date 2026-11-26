@@ -2,8 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const app = require('../src/server');
 
-// These tests intentionally focus on the health route and a single validation contract.
-// Full workflow coverage is intentionally absent from this fixture.
+// This file covers the health route only.
+// Inventory, shipment and dispatch routes are covered in sibling test files.
 test('health route responds', async () => {
   const server = app.listen(0);
   const port = server.address().port;
