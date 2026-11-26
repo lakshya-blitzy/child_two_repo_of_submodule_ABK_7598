@@ -63,7 +63,9 @@ test('creating a shipment rejects a quantity above the available stock', async (
   assert.equal(refusal.id, undefined);
 
   const afterRefusal = await (await fetch(`${base}/inventory`)).json();
-  assert.equal(afterRefusal.find((item) => item.sku === 'SKU-SHIP-OVER-1').quantity, 2);
+  const refusedItem = afterRefusal.find((item) => item.sku === 'SKU-SHIP-OVER-1');
+  assert.ok(refusedItem, 'SKU-SHIP-OVER-1 is still listed in the inventory after the refusal');
+  assert.equal(refusedItem.quantity, 2);
 
   const reserved = await fetch(`${base}/shipments`, {
     method: 'POST',
@@ -73,7 +75,9 @@ test('creating a shipment rejects a quantity above the available stock', async (
   assert.equal(reserved.status, 201);
 
   const afterReservation = await (await fetch(`${base}/inventory`)).json();
-  assert.equal(afterReservation.find((item) => item.sku === 'SKU-SHIP-OVER-1').quantity, 0);
+  const reservedItem = afterReservation.find((item) => item.sku === 'SKU-SHIP-OVER-1');
+  assert.ok(reservedItem, 'SKU-SHIP-OVER-1 is still listed in the inventory after the full reservation');
+  assert.equal(reservedItem.quantity, 0);
 });
 
 test('creating a shipment rejects a non-positive quantity without touching stock', async () => {
@@ -95,7 +99,9 @@ test('creating a shipment rejects a non-positive quantity without touching stock
   }
 
   const listed = await (await fetch(`${base}/inventory`)).json();
-  assert.equal(listed.find((item) => item.sku === 'SKU-SHIP-QTY-1').quantity, 5);
+  const untouchedItem = listed.find((item) => item.sku === 'SKU-SHIP-QTY-1');
+  assert.ok(untouchedItem, 'SKU-SHIP-QTY-1 is still listed in the inventory');
+  assert.equal(untouchedItem.quantity, 5);
 });
 
 test('creating a shipment rejects a sku that is not in the catalogue', async () => {
