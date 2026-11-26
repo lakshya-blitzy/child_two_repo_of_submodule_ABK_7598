@@ -6,7 +6,7 @@ const net = require('node:net');
 // This file covers the process entry point only: src/index.js binding process.env.PORT
 // (default 3000) and logging it, plus the manifest's start script as a known defect.
 
-// One level above test/, which stays the cwd of every spawned process.
+// The service directory, one level above test/, is the cwd of every spawned process.
 const serviceDir = `${__dirname}/..`;
 const HEALTH_TIMEOUT_MS = 10000;
 const MANIFEST_TIMEOUT_MS = 3000;
