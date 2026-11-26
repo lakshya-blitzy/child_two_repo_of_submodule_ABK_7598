@@ -10,4 +10,41 @@ An Express service for inventory intake, shipment creation, shipment lookup and 
 `npm test`
 
 ## Deliberate analysis gaps
-Only the health route is currently tested. Missing high-value journeys include receiving inventory, creating a shipment, verifying inventory decrement, retrieving the shipment and dispatching it. Boundary and conflict behaviours (duplicate SKU, insufficient inventory, repeated dispatch) also need tests.
+Every route is covered at the integration level. `test/inventory.test.js` covers inventory intake with its payload and duplicate-SKU guards and inventory listing with the post-reservation quantity and insertion order; `test/shipments.test.js` covers shipment creation with its in-place stock decrement and the three refusals (unknown SKU, non-positive or non-integer quantity, insufficient inventory); `test/shipment-lifecycle.test.js` covers shipment retrieval with its 404 and dispatch with the default and the supplied carrier plus the repeated-dispatch 409; `test/entrypoint.test.js` covers the process entry point; `test/routes.test.js` still covers the health route. What is deliberately left uncovered: no coverage threshold is configured, so coverage is tracked by behaviour, by hand, in the section below; the module-level `inventory` and `shipments` Maps live for the life of a process and are never exported, so no test can reset them and a test reads back only the keys it wrote; and nothing covers concurrent requests or the non-transactional decrement-then-insert in `POST /shipments`.
+
+## Integration test results
+
+Everything recorded here is integration-level: each test drives real HTTP over a loopback socket (`app.listen(0)` plus the global `fetch`) or spawns `node src/index.js`, and none of it calls a handler directly or substitutes the transport. Every command below was run from `services/warehouse-catalogue-api` on Node.js v22.23.5 with `express@4.21.2`.
+
+### Expected failure
+
+`manifest start script serves the app` in `test/entrypoint.test.js` fails on purpose.
+
+- Reason: `package.json:5` sets `start` to `node src/server.js`, and `src/server.js:53` is `module.exports = app` with no `listen` call, so `npm start` starts a process that serves nothing; the bind and the startup log live in `src/index.js`, which the manifest does not start.
+- Reproducing command: `node --test --test-name-pattern="manifest start script" test/entrypoint.test.js`
+- Observed TAP line:
+
+```text
+not ok 1 - manifest start script serves the app # TODO package.json:5 sets start to `node src/server.js`, and src/server.js:53 is `module.exports = app` with no listen call, so `npm start` starts a process that serves nothing
+```
+
+The summary of that run is `# tests 1`, `# pass 0`, `# fail 0`, `# todo 1`, exit code 0. The test is deliberately marked as an expected failure with the runner's `{ todo: <reason> }` idiom — Node's runner has no `xfail` — so it is counted under `# todo` and never under `# fail`, and production behaviour was not changed to make it pass.
+
+### Run evidence
+
+| Command | Observed summary |
+| --- | --- |
+| `node --test test/routes.test.js` (the pre-existing health test on its own) | `# tests 1`, `# pass 1`, `# fail 0`, exit 0 |
+| `node --test test/inventory.test.js` | `# tests 4`, `# pass 4`, `# fail 0`, exit 0 |
+| `node --test test/shipments.test.js` | `# tests 4`, `# pass 4`, `# fail 0`, exit 0 |
+| `node --test test/shipment-lifecycle.test.js` | `# tests 3`, `# pass 3`, `# fail 0`, exit 0 |
+| `node --test test/entrypoint.test.js` | `# tests 3`, `# pass 2`, `# fail 0`, `# todo 1`, exit 0 |
+| `npm test` (full suite) | `# tests 15`, `# pass 14`, `# fail 0`, `# todo 1`, exit 0 |
+
+Port 3000 was free in the environment these runs were taken in, so `entry point falls back to port 3000 when PORT is unset` ran instead of skipping. Where the port is held, that case skips with `port 3000 is occupied in this environment`, and the summaries become `# pass 1`, `# skipped 1`, `# todo 1` for the file and `# pass 13`, `# skipped 1`, `# todo 1` for the full suite, still with exit code 0.
+
+### Coverage
+
+13 of 13 integration behaviours are covered — the pre-existing `GET /health` behaviour plus the 12 newly closed — against a denominator of 13, of which 5 are high priority and 8 medium. The framework-level `400` that `express.json()` returns for a malformed JSON body is deliberately excluded, because it re-tests Express rather than this service.
+
+Line coverage is a secondary measure and settles nothing here: `node --test --experimental-test-coverage` reports `src/server.js` at 100.00% lines / 100.00% branches / 100.00% functions, against 45.28% / 100.00% / 16.67% before this work. `src/index.js` does not appear in that report at all, because it is exercised by a spawned child process rather than imported; the evidence for it is the spawn test above.
