@@ -6,7 +6,7 @@ const { spawn } = require('node:child_process');
 
 // End-to-end contract: the service runs as its own process and is addressed over loopback
 // TCP, so this file never requires anything under src/. Binding app.listen in-process would
-// only repeat the integration-level check that test/routes.test.js already makes.
+// keep this file at the integration level test/routes.test.js already covers.
 const SERVICE_ROOT = path.join(__dirname, '..', '..');
 const ENTRY = path.join(SERVICE_ROOT, 'src', 'index.js');
 const READY_TIMEOUT_MS = 10000;
