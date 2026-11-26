@@ -52,8 +52,20 @@ function portHeld(port) {
 // printed, which is the only diagnostic available when a spawned process dies before it binds.
 async function waitForHealth(service, baseUrl, timeoutMs, expectedLog = null) {
   const deadline = Date.now() + timeoutMs;
+  // Both ways out of the poll say why the service will never answer at this address; the expired
+  // deadline is named only when the deadline is what ended the wait.
+  const unavailable = (reason) => new Error(
+    `service did not answer GET ${baseUrl}/health${reason}; child output: ${service.readOutput()}`,
+  );
   let lastError = null;
   while (Date.now() < deadline) {
+    // A child that has exited or been killed will not answer, so it is reported at once rather than
+    // after polling out the whole deadline; waiting on 'close' first means the output this
+    // diagnostic reads is the child's complete output.
+    if (service.child.exitCode !== null || service.child.signalCode !== null) {
+      await service.closed;
+      throw unavailable('');
+    }
     try {
       const response = await fetch(`${baseUrl}/health`);
       if (response.status === 200) {
@@ -74,9 +86,7 @@ async function waitForHealth(service, baseUrl, timeoutMs, expectedLog = null) {
     await pause(POLL_INTERVAL_MS);
   }
   const reason = lastError ? `: ${lastError.message}` : '';
-  throw new Error(
-    `service did not answer GET ${baseUrl}/health within ${timeoutMs}ms${reason}; child output: ${service.readOutput()}`,
-  );
+  throw unavailable(` within ${timeoutMs}ms${reason}`);
 }
 
 // Captures both streams for diagnostics; a spawn failure is recorded there instead of
@@ -96,8 +106,15 @@ function startService(command, args, env) {
   child.on('error', (error) => {
     stderr += `${error.message}\n`;
   });
+  // 'exit' can fire before the stdio pipes have drained, so a diagnostic that reads the captured
+  // output waits for 'close' instead: it fires once both streams are closed, every byte the child
+  // printed is in, and nothing more is coming.
+  const closed = new Promise((resolve) => {
+    child.once('close', resolve);
+  });
   return {
     child,
+    closed,
     readStdout: () => stdout,
     readOutput: () => `${stdout}${stderr}${childStatus(child)}`,
   };
@@ -150,7 +167,17 @@ test('entry point falls back to port 3000 when PORT is unset', async (t) => {
   try {
     const baseUrl = 'http://127.0.0.1:3000';
     const startupLine = /warehouse API listening on 3000/;
-    await waitForHealth(service, baseUrl, HEALTH_TIMEOUT_MS, startupLine);
+    try {
+      await waitForHealth(service, baseUrl, HEALTH_TIMEOUT_MS, startupLine);
+    } catch (error) {
+      // The probe above closes its socket before the child binds it, so another process on this
+      // shared host can take 3000 in that window. With PORT unset src/index.js binds nothing but
+      // 3000, so EADDRINUSE in this child is the probe's own condition arriving one step late: it
+      // skips with the same reason rather than failing. Any other error is a real one and stands.
+      if (!service.readOutput().includes('EADDRINUSE')) throw error;
+      t.skip('port 3000 is occupied in this environment');
+      return;
+    }
     const response = await fetch(`${baseUrl}/health`);
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { status: 'ok' });
