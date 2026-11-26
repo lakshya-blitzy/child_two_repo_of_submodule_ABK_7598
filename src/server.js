@@ -5,6 +5,7 @@ app.use(express.json());
 const inventory = new Map();
 const shipments = new Map();
 
+/** Health check: answers GET /health with 200 and { status: 'ok' } while the service is up. */
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 app.post('/inventory', (req, res) => {
