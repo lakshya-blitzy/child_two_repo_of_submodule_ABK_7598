@@ -74,16 +74,16 @@ test('creating inventory rejects a duplicate sku', async () => {
 });
 
 test('listing inventory returns stored items in insertion order with current quantities', async () => {
-  const washer = await postJson('/inventory', { sku: 'SKU-INV-ORDER-A', name: 'Washer', quantity: 5 });
-  assert.equal(washer.status, 201);
   const nut = await postJson('/inventory', { sku: 'SKU-INV-ORDER-B', name: 'Nut', quantity: 8 });
   assert.equal(nut.status, 201);
+  const washer = await postJson('/inventory', { sku: 'SKU-INV-ORDER-A', name: 'Washer', quantity: 5 });
+  assert.equal(washer.status, 201);
 
   const reserved = await postJson('/shipments', { sku: 'SKU-INV-ORDER-B', quantity: 3, destination: 'Lyon' });
   assert.equal(reserved.status, 201);
 
   assert.deepEqual(await readInventoryFor(['SKU-INV-ORDER-A', 'SKU-INV-ORDER-B']), [
-    { sku: 'SKU-INV-ORDER-A', name: 'Washer', quantity: 5, reorderLevel: 5 },
     { sku: 'SKU-INV-ORDER-B', name: 'Nut', quantity: 5, reorderLevel: 5 },
+    { sku: 'SKU-INV-ORDER-A', name: 'Washer', quantity: 5, reorderLevel: 5 },
   ]);
 });
