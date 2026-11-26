@@ -2,13 +2,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const net = require('node:net');
-const path = require('node:path');
-const pkg = require('../package.json');
 
 // This file covers the process entry point only: src/index.js binding process.env.PORT
 // (default 3000) and logging it, plus the manifest's start script as a known defect.
 
-const serviceDir = path.join(__dirname, '..');
+// One level above test/, which stays the cwd of every spawned process.
+const serviceDir = `${__dirname}/..`;
 const HEALTH_TIMEOUT_MS = 10000;
 const MANIFEST_TIMEOUT_MS = 3000;
 const POLL_INTERVAL_MS = 100;
@@ -47,9 +46,11 @@ function portHeld(port) {
   });
 }
 
-// Bounded poll on GET /health. A failure reports what the child printed, which is the only
-// diagnostic available when a spawned process dies before it binds.
-async function waitForHealth(baseUrl, timeoutMs, readOutput) {
+// Bounded poll on GET /health that also waits for an expected startup log. The log travels on the
+// child's stdout pipe and the health answer can arrive before the pipe delivers those bytes, so
+// the line is polled for here rather than read once afterwards. A failure reports what the child
+// printed, which is the only diagnostic available when a spawned process dies before it binds.
+async function waitForHealth(service, baseUrl, timeoutMs, expectedLog = null) {
   const deadline = Date.now() + timeoutMs;
   let lastError = null;
   while (Date.now() < deadline) {
@@ -57,8 +58,13 @@ async function waitForHealth(baseUrl, timeoutMs, readOutput) {
       const response = await fetch(`${baseUrl}/health`);
       if (response.status === 200) {
         const body = await response.json();
-        if (body && body.status === 'ok') return body;
-        lastError = new Error(`unexpected health body ${JSON.stringify(body)}`);
+        if (!body || body.status !== 'ok') {
+          lastError = new Error(`unexpected health body ${JSON.stringify(body)}`);
+        } else if (expectedLog === null || expectedLog.test(service.readStdout())) {
+          return body;
+        } else {
+          lastError = new Error('health answered but the startup line is not on stdout yet');
+        }
       } else {
         lastError = new Error(`health responded with status ${response.status}`);
       }
@@ -69,14 +75,14 @@ async function waitForHealth(baseUrl, timeoutMs, readOutput) {
   }
   const reason = lastError ? `: ${lastError.message}` : '';
   throw new Error(
-    `service did not answer GET ${baseUrl}/health within ${timeoutMs}ms${reason}; child output: ${readOutput()}`,
+    `service did not answer GET ${baseUrl}/health within ${timeoutMs}ms${reason}; child output: ${service.readOutput()}`,
   );
 }
 
 // Captures both streams for diagnostics; a spawn failure is recorded there instead of
 // surfacing as an unhandled 'error' event.
-function startService(command, args, env, shell = false) {
-  const child = spawn(command, args, { cwd: serviceDir, env, shell });
+function startService(command, args, env) {
+  const child = spawn(command, args, { cwd: serviceDir, env });
   let stdout = '';
   let stderr = '';
   child.stdout.setEncoding('utf8');
@@ -115,20 +121,21 @@ async function stopChild(child) {
 
 test('entry point serves the app on the port named by PORT and logs it', async () => {
   const port = await freePort();
-  const { child, readStdout, readOutput } = startService(
+  const service = startService(
     process.execPath,
     ['src/index.js'],
     { ...process.env, PORT: String(port) },
   );
   try {
     const baseUrl = `http://127.0.0.1:${port}`;
-    await waitForHealth(baseUrl, HEALTH_TIMEOUT_MS, readOutput);
+    const startupLine = new RegExp(`warehouse API listening on ${port}`);
+    await waitForHealth(service, baseUrl, HEALTH_TIMEOUT_MS, startupLine);
     const response = await fetch(`${baseUrl}/health`);
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { status: 'ok' });
-    assert.match(readStdout(), new RegExp(`warehouse API listening on ${port}`));
+    assert.match(service.readStdout(), startupLine);
   } finally {
-    await stopChild(child);
+    await stopChild(service.child);
   }
 });
 
@@ -139,36 +146,38 @@ test('entry point falls back to port 3000 when PORT is unset', async (t) => {
   }
   const env = { ...process.env };
   delete env.PORT;
-  const { child, readStdout, readOutput } = startService(process.execPath, ['src/index.js'], env);
+  const service = startService(process.execPath, ['src/index.js'], env);
   try {
     const baseUrl = 'http://127.0.0.1:3000';
-    await waitForHealth(baseUrl, HEALTH_TIMEOUT_MS, readOutput);
+    const startupLine = /warehouse API listening on 3000/;
+    await waitForHealth(service, baseUrl, HEALTH_TIMEOUT_MS, startupLine);
     const response = await fetch(`${baseUrl}/health`);
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { status: 'ok' });
-    assert.match(readStdout(), /warehouse API listening on 3000/);
+    assert.match(service.readStdout(), startupLine);
   } finally {
-    await stopChild(child);
+    await stopChild(service.child);
   }
 });
 
-// Expected failure: recorded, never repaired, because production behaviour is frozen.
+// The manifest stays the single source of the command: npm is invoked with an argument array and
+// no shell, and reads package.json:5 itself, so this case starts passing the day `start` points at
+// src/index.js. Expected failure: recorded, never repaired, because production behaviour is frozen.
 test('manifest start script serves the app', {
   todo: 'package.json:5 sets start to `node src/server.js`, and src/server.js:53 is `module.exports = app` with no listen call, so `npm start` starts a process that serves nothing',
 }, async () => {
   const port = await freePort();
-  const { child, readOutput } = startService(
-    pkg.scripts.start,
-    [],
+  const service = startService(
+    'npm',
+    ['run', 'start'],
     { ...process.env, PORT: String(port) },
-    true,
   );
   try {
     const baseUrl = `http://127.0.0.1:${port}`;
-    await waitForHealth(baseUrl, MANIFEST_TIMEOUT_MS, readOutput);
+    await waitForHealth(service, baseUrl, MANIFEST_TIMEOUT_MS);
     const response = await fetch(`${baseUrl}/health`);
     assert.equal(response.status, 200);
   } finally {
-    await stopChild(child);
+    await stopChild(service.child);
   }
 });

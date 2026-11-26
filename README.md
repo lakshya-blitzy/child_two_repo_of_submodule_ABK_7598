@@ -41,10 +41,29 @@ The summary of that run is `# tests 1`, `# pass 0`, `# fail 0`, `# todo 1`, exit
 | `node --test test/entrypoint.test.js` | `# tests 3`, `# pass 2`, `# fail 0`, `# todo 1`, exit 0 |
 | `npm test` (full suite) | `# tests 15`, `# pass 14`, `# fail 0`, `# todo 1`, exit 0 |
 
+Each new test on its own, one command per case — the fourteen passing cases, since `manifest start script serves the app` is the expected failure recorded above:
+
+| Command | Observed line |
+| --- | --- |
+| `node --test --test-name-pattern="health route responds" test/routes.test.js` | `ok 1 - health route responds`, exit 0 |
+| `node --test --test-name-pattern="creating inventory stores the item and defaults reorder level to 5" test/inventory.test.js` | `ok 1 - creating inventory stores the item and defaults reorder level to 5`, exit 0 |
+| `node --test --test-name-pattern="creating inventory rejects a payload missing required fields" test/inventory.test.js` | `ok 1 - creating inventory rejects a payload missing required fields`, exit 0 |
+| `node --test --test-name-pattern="creating inventory rejects a duplicate sku" test/inventory.test.js` | `ok 1 - creating inventory rejects a duplicate sku`, exit 0 |
+| `node --test --test-name-pattern="listing inventory returns stored items in insertion order with current quantities" test/inventory.test.js` | `ok 1 - listing inventory returns stored items in insertion order with current quantities`, exit 0 |
+| `node --test --test-name-pattern="creating a shipment reserves stock and reports it as created" test/shipments.test.js` | `ok 1 - creating a shipment reserves stock and reports it as created`, exit 0 |
+| `node --test --test-name-pattern="creating a shipment rejects a quantity above the available stock" test/shipments.test.js` | `ok 1 - creating a shipment rejects a quantity above the available stock`, exit 0 |
+| `node --test --test-name-pattern="creating a shipment rejects a non-positive quantity without touching stock" test/shipments.test.js` | `ok 1 - creating a shipment rejects a non-positive quantity without touching stock`, exit 0 |
+| `node --test --test-name-pattern="creating a shipment rejects a sku that is not in the catalogue" test/shipments.test.js` | `ok 1 - creating a shipment rejects a sku that is not in the catalogue`, exit 0 |
+| `node --test --test-name-pattern="reading a shipment returns the stored shipment and rejects an unknown id" test/shipment-lifecycle.test.js` | `ok 1 - reading a shipment returns the stored shipment and rejects an unknown id`, exit 0 |
+| `node --test --test-name-pattern="dispatching a shipment marks it dispatched with the given or default carrier" test/shipment-lifecycle.test.js` | `ok 1 - dispatching a shipment marks it dispatched with the given or default carrier`, exit 0 |
+| `node --test --test-name-pattern="dispatching a shipment twice conflicts and an unknown id is not found" test/shipment-lifecycle.test.js` | `ok 1 - dispatching a shipment twice conflicts and an unknown id is not found`, exit 0 |
+| `node --test --test-name-pattern="entry point serves the app on the port named by PORT and logs it" test/entrypoint.test.js` | `ok 1 - entry point serves the app on the port named by PORT and logs it`, exit 0 |
+| `node --test --test-name-pattern="entry point falls back to port 3000 when PORT is unset" test/entrypoint.test.js` | `ok 1 - entry point falls back to port 3000 when PORT is unset`, exit 0 |
+
 Port 3000 was free in the environment these runs were taken in, so `entry point falls back to port 3000 when PORT is unset` ran instead of skipping. Where the port is held, that case skips with `port 3000 is occupied in this environment`, and the summaries become `# pass 1`, `# skipped 1`, `# todo 1` for the file and `# pass 13`, `# skipped 1`, `# todo 1` for the full suite, still with exit code 0.
 
 ### Coverage
 
-13 of 13 integration behaviours are covered — the pre-existing `GET /health` behaviour plus the 12 newly closed — against a denominator of 13, of which 5 are high priority and 8 medium. The framework-level `400` that `express.json()` returns for a malformed JSON body is deliberately excluded, because it re-tests Express rather than this service.
+13 of 13 integration behaviours are covered — the pre-existing `GET /health` behaviour plus the 12 newly closed — against a denominator of 13, of which 5 are high priority and 8 medium. The requested target was 90%, which at this denominator is 12 of 13 behaviours (92.3%); 11 of 13 would be 84.6% and would miss, and this work closes 12 behaviours, reaching 13 of 13. The framework-level `400` that `express.json()` returns for a malformed JSON body is deliberately excluded, because it re-tests Express rather than this service.
 
 Line coverage is a secondary measure and settles nothing here: `node --test --experimental-test-coverage` reports `src/server.js` at 100.00% lines / 100.00% branches / 100.00% functions, against 45.28% / 100.00% / 16.67% before this work. `src/index.js` does not appear in that report at all, because it is exercised by a spawned child process rather than imported; the evidence for it is the spawn test above.
